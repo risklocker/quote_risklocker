@@ -1,2 +1,2 @@
 # quote_risklocker
-Simple Quotation fenerator from pdf
+Simple Quotation generator from pdf
