@@ -1,0 +1,63 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Risklocker: Backend",
+      "type": "shell",
+      "command": "npm run backend",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "group": "risklocker",
+        "clear": true,
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Risklocker: Frontend",
+      "type": "shell",
+      "command": "npm run frontend",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "group": "risklocker",
+        "clear": true,
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Risklocker: Start Full App",
+      "dependsOn": [
+        "Risklocker: Backend",
+        "Risklocker: Frontend"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Risklocker: Stop App",
+      "type": "shell",
+      "command": "npm run stop",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "shared",
+        "clear": true,
+        "reveal": "always"
+      }
+    }
+  ]
+}

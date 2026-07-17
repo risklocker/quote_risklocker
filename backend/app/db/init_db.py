@@ -1,0 +1,184 @@
+"""Schema creation and default data seeding."""
+
+from __future__ import annotations
+
+import os
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.enums import AccountStatus, InsuranceType, Role
+from app.models.tables import (
+    AppSetting,
+    Base,
+    BenefitOption,
+    FieldAlias,
+    InsuranceCategory,
+    InsuranceCompany,
+    OutputTemplateConfig,
+    User,
+    VehicleBrand,
+    VehicleModel,
+)
+from app.services.template_config import default_template_config
+from app.services.auth_service import normalize_employee_email
+
+
+DEFAULT_COMPANIES = [
+    ("AmGen", "Amgen / AmAssurance / Kurnia-style", ["amgen", "amgeneral"]),
+    ("AmAssurance", "Amgen / AmAssurance / Kurnia-style", ["amassurance", "am assurance"]),
+    ("Kurnia", "Amgen / AmAssurance / Kurnia-style", ["kurnia insurans", "kurnia"]),
+    ("QBE-DPP", "QBE-DPP", ["qbe", "driver passenger protection", "dpp"]),
+    ("QBE", "QBE", ["qbe"]),
+    ("STMB", "STMB", ["sumbangan tenaga", "stmb"]),
+    ("Liberty", "Liberty", ["liberty insurance", "liberty general"]),
+    ("Etiqa Takaful", "Etiqa Takaful", ["etiqa", "etiqa takaful"]),
+    ("AIG", "AIG", ["aig malaysia", "aig"]),
+    ("Lonpac", "Other / Unknown", ["lonpac"]),
+    ("MMIP", "MMIP", ["mmip", "malaysia motor insurance pool"]),
+    ("Other / Unknown", "Other / Unknown", ["motor quotation", "insurance quotation"]),
+]
+
+DEFAULT_FIELD_ALIASES = {
+    "customer_name": ["insured name", "name", "customer", "client name", "policyholder", "owner name"],
+    "vehicle_no": ["vehicle no", "registration no", "reg no", "car no", "plate no", "vehicle registration"],
+    "insurance_company": ["insurer", "insurance company", "company"],
+    "cover_start_date": ["cover start", "period from", "from date", "effective date"],
+    "cover_end_date": ["cover end", "period to", "to date", "expiry date"],
+    "issue_date": ["issue date", "quotation date"],
+    "car_brand": ["make", "brand", "car"],
+    "car_model": ["model", "vehicle model"],
+    "vehicle_year": ["year", "manufacture year", "mfg year"],
+    "engine_cc": ["engine cc", "capacity", "cubic capacity", "engine capacity", "cc"],
+    "coverage_amount": ["sum insured", "coverage amount", "insured value", "market value", "agreed value"],
+    "premium": ["premium", "gross premium", "premium payable", "basic premium"],
+    "total_amount": ["total payable", "total amount", "amount payable", "gross amount"],
+    "roadtax": ["road tax", "roadtax"],
+    "service_fee": ["service fee", "runner fee"],
+    "ncd_percent": ["ncd", "no claim discount"],
+    "windscreen": ["windscreen"],
+    "towing": ["towing"],
+}
+
+DEFAULT_VEHICLES = {
+    "PROTON": ["PROTON"],
+    "PERODUA": ["PERODUA"],
+    "HONDA": ["HONDA"],
+    "TOYOTA": ["TOYOTA"],
+    "NISSAN": ["NISSAN"],
+    "BMW": ["BMW"],
+    "MERCEDES": ["MERCEDES", "MERCEDES-BENZ"],
+}
+
+DEFAULT_MODELS = [
+    ("PROTON", "SAGA BLM", ["SAGA BLM", "BLM", "SAGA"]),
+    ("PROTON", "WAJA", ["WAJA"]),
+    ("PERODUA", "MYVI", ["MYVI"]),
+    ("PERODUA", "AXIA", ["AXIA"]),
+    ("TOYOTA", "VIOS", ["VIOS"]),
+    ("HONDA", "CITY", ["CITY"]),
+]
+
+
+def create_schema(engine) -> None:
+    Base.metadata.create_all(bind=engine)
+
+
+def seed_defaults(db: Session) -> None:
+    for category in [InsuranceType.MOTOR.value, InsuranceType.PROPERTY.value, InsuranceType.CONSTRUCTION.value, InsuranceType.FIRE.value]:
+        if not db.scalar(select(InsuranceCategory).where(InsuranceCategory.name == category)):
+            db.add(InsuranceCategory(name=category))
+
+    for name, template_category, phrases in DEFAULT_COMPANIES:
+        company = db.scalar(select(InsuranceCompany).where(InsuranceCompany.name == name))
+        if not company:
+            company = InsuranceCompany(
+                name=name,
+                category=InsuranceType.MOTOR.value,
+                source_template_category=template_category,
+                detection_phrases=phrases,
+            )
+            db.add(company)
+            db.flush()
+
+    default_template = db.scalar(select(OutputTemplateConfig).where(OutputTemplateConfig.name == "Risklocker Motor Template"))
+    if not default_template:
+        default_template = OutputTemplateConfig(
+            name="Risklocker Motor Template",
+            insurance_type=InsuranceType.MOTOR.value,
+            editable_fields=list(DEFAULT_FIELD_ALIASES.keys()),
+            static_notes="Generated from reviewed Risklocker draft data.",
+        )
+        db.add(default_template)
+    default_template.insurance_company_id = None
+    default_template.status = AccountStatus.ACTIVE.value
+    default_template.fixed_fields = default_template_config("Motor", locked=True)
+    default_template.static_notes = "Generated from reviewed Risklocker draft data."
+
+    old_template_names = [
+        "Risklocker Amgen / AmAssurance / Kurnia-style Motor",
+        "Risklocker QBE-DPP Motor",
+        "Risklocker QBE Motor",
+        "Risklocker STMB Motor",
+        "Risklocker Liberty Motor",
+        "Risklocker Etiqa Takaful Motor",
+        "Risklocker AIG Motor",
+        "Risklocker MMIP Motor",
+        "Risklocker Other / Unknown Motor",
+        "Risklocker Generic Motor",
+    ]
+    for template in db.scalars(select(OutputTemplateConfig).where(OutputTemplateConfig.name.in_(old_template_names))).all():
+        if template.name != "Risklocker Motor Template":
+            template.status = AccountStatus.INACTIVE.value
+
+    for field, aliases in DEFAULT_FIELD_ALIASES.items():
+        if not db.scalar(select(FieldAlias).where(FieldAlias.field_name == field)):
+            db.add(FieldAlias(field_name=field, aliases=aliases))
+
+    brand_by_name: dict[str, VehicleBrand] = {}
+    for brand, aliases in DEFAULT_VEHICLES.items():
+        obj = db.scalar(select(VehicleBrand).where(VehicleBrand.name == brand))
+        if not obj:
+            obj = VehicleBrand(name=brand, aliases=aliases)
+            db.add(obj)
+            db.flush()
+        brand_by_name[brand] = obj
+
+    for brand, model, aliases in DEFAULT_MODELS:
+        if not db.scalar(select(VehicleModel).where(VehicleModel.name == model)):
+            db.add(VehicleModel(brand_id=brand_by_name.get(brand).id if brand_by_name.get(brand) else None, name=model, aliases=aliases))
+
+    for label in ["Windscreen", "Towing", "All Drivers", "Flood", "Special Perils"]:
+        if not db.scalar(select(BenefitOption).where(BenefitOption.label == label)):
+            db.add(BenefitOption(label=label, section="Motor Benefits", default_selected=False))
+
+    if not db.get(AppSetting, "extraction_strategies"):
+        db.add(
+            AppSetting(
+                key="extraction_strategies",
+                value={
+                    "native_pymupdf": True,
+                    "native_pdfplumber": True,
+                    "enhanced_paddleocr": True,
+                    "enhanced_tesseract": True,
+                    "layout_ppstructure": True,
+                    "visual_opencv": True,
+                },
+            )
+        )
+
+    admin_email = os.getenv("INITIAL_ADMIN_EMAIL")
+    if admin_email:
+        normalized_admin_email = normalize_employee_email(admin_email)
+    else:
+        normalized_admin_email = ""
+    if normalized_admin_email and not db.scalar(select(User).where(User.email == normalized_admin_email)):
+        db.add(
+            User(
+                email=normalized_admin_email,
+                role=Role.ADMIN.value,
+                status=AccountStatus.ACTIVE.value,
+            )
+        )
+
+    db.commit()

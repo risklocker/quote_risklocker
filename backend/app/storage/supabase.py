@@ -1,0 +1,155 @@
+"""Private Supabase Storage client used only by the backend."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import PurePosixPath
+from urllib.parse import quote
+
+import httpx
+
+from app.core.config import Settings
+
+
+class StorageError(RuntimeError):
+    pass
+
+
+class StorageNotFound(StorageError):
+    pass
+
+
+@dataclass(frozen=True)
+class StoredPdf:
+    object_key: str
+    bucket: str
+    size_bytes: int
+    sha256: str
+    etag: str | None
+
+
+def validate_object_key(object_key: str) -> str:
+    normalized = str(PurePosixPath(object_key.replace("\\", "/")))
+    if normalized in {"", "."} or normalized.startswith("/") or ".." in PurePosixPath(normalized).parts:
+        raise StorageError("Invalid object key.")
+    if any(part in {"", "."} for part in PurePosixPath(normalized).parts):
+        raise StorageError("Invalid object key.")
+    return normalized
+
+
+class SupabaseStorage:
+    def __init__(self, settings: Settings, client: httpx.Client | None = None):
+        self.settings = settings
+        self.bucket = settings.supabase_storage_bucket
+        self._client = client
+
+    @property
+    def headers(self) -> dict[str, str]:
+        key = self.settings.supabase_service_role_key
+        return {"apikey": key, "Authorization": f"Bearer {key}"}
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        client = self._client or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0))
+        close_client = self._client is None
+        try:
+            response = client.request(method, f"{self.settings.supabase_url}{path}", headers=self.headers, **kwargs)
+        except httpx.HTTPError as exc:
+            raise StorageError("Supabase Storage could not be reached.") from exc
+        finally:
+            if close_client:
+                client.close()
+        return response
+
+    @staticmethod
+    def _error_message(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return "Unexpected provider response."
+        return str(payload.get("message") or payload.get("error") or "Unexpected provider response.")[:240]
+
+    @classmethod
+    def _not_found(cls, response: httpx.Response) -> bool:
+        if response.status_code == 404:
+            return True
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        return str(payload.get("statusCode")) == "404" or "not found" in str(payload.get("message", "")).lower()
+
+    def ensure_bucket(self) -> None:
+        bucket_id = quote(self.bucket, safe="")
+        response = self._request("GET", f"/storage/v1/bucket/{bucket_id}")
+        if response.status_code == 200:
+            payload = response.json()
+            if payload.get("public") is True:
+                raise StorageError("The Supabase PDF bucket must be private.")
+            return
+        if not self._not_found(response):
+            raise StorageError(f"Supabase bucket check failed ({response.status_code}): {self._error_message(response)}")
+        created = self._request(
+            "POST",
+            "/storage/v1/bucket",
+            json={
+                "id": self.bucket,
+                "name": self.bucket,
+                "public": False,
+                "file_size_limit": self.settings.max_upload_bytes,
+                "allowed_mime_types": ["application/pdf"],
+            },
+        )
+        if created.status_code not in {200, 201}:
+            raise StorageError(f"Supabase private bucket creation failed ({created.status_code}): {self._error_message(created)}")
+
+    def upload_pdf(self, object_key: str, data: bytes) -> StoredPdf:
+        key = validate_object_key(object_key)
+        if len(data) > self.settings.max_upload_bytes:
+            raise StorageError("PDF exceeds the configured upload limit.")
+        encoded_key = quote(key, safe="/")
+        response = self._request(
+            "POST",
+            f"/storage/v1/object/{quote(self.bucket, safe='')}/{encoded_key}",
+            files={"file": (PurePosixPath(key).name, data, "application/pdf")},
+        )
+        if response.status_code not in {200, 201}:
+            if response.status_code == 409:
+                raise StorageError("A PDF already exists at the generated object key.")
+            raise StorageError(f"Supabase PDF upload failed ({response.status_code}): {self._error_message(response)}")
+        return StoredPdf(
+            object_key=key,
+            bucket=self.bucket,
+            size_bytes=len(data),
+            sha256=sha256(data).hexdigest(),
+            etag=response.headers.get("etag"),
+        )
+
+    def download_pdf(self, object_key: str) -> bytes:
+        key = validate_object_key(object_key)
+        response = self._request(
+            "GET",
+            f"/storage/v1/object/{quote(self.bucket, safe='')}/{quote(key, safe='/')}",
+        )
+        if self._not_found(response):
+            raise StorageNotFound("PDF object not found.")
+        if response.status_code != 200:
+            raise StorageError(f"Supabase PDF download failed ({response.status_code}): {self._error_message(response)}")
+        return response.content
+
+    def delete_pdf(self, object_key: str) -> None:
+        key = validate_object_key(object_key)
+        response = self._request(
+            "DELETE",
+            f"/storage/v1/object/{quote(self.bucket, safe='')}",
+            json={"prefixes": [key]},
+        )
+        if response.status_code not in {200, 204, 404}:
+            raise StorageError(f"Supabase PDF deletion failed ({response.status_code}): {self._error_message(response)}")
+
+    def check(self) -> tuple[bool, str]:
+        try:
+            self.ensure_bucket()
+            return True, f"Private bucket '{self.bucket}' is ready."
+        except StorageError as exc:
+            return False, str(exc)

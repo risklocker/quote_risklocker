@@ -1,0 +1,27 @@
+RISKLOCKER MANAGEMENT
+QUOTATION
+Liberty General Insurance Berhad
+Insured Name Issued Date Vehicle Class Capacity Vehicle No Trailer No Named Driver
+TEST CUSTOMER 22-05-2026 PRIVATE CAR EX GOODS 1584 CC TST1234 ANY AUTHORISED DRIVER
+Valid Until 20-08-2026
+Start Date Expiry Date
+09-07-2026 08-07-2027
+Make & Model Year of make Vehicle Sum Insured Trailer Sum Insured
+PROTON WAJA ENHANCED 2005 08-07-2027 RM 10,000.00 0.00
+ISM-ABI Market Value RM 6,700.00
+Engine/Motor No: TESTENGINE01
+Chassis No.: TESTCHASSIS01
+Excess Amount: RM 0.00
+auto365 Comprehensive Plus Quotation Ref No.QBTEST-001
+RM 717.02 RM 842.55 RM 0.00 RM 0.00 RM 0.00 RM 379.15 RM 191.25
+NCD 45.00%
+Total Optional Cover Amount RM 52.37
+Service Tax 8% RM 52.37
+Stamp Duty RM 10.00
+Gross Premium RM 654.65
+Total Payable RM 717.02
+OPTIONAL COVER LIST
+Legal Liability Of Passengers
+Legal Liability To Passengers
+Windscreen Damage RM 1,000.00
+One Touch

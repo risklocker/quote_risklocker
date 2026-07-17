@@ -1,0 +1,22 @@
+MOTOR TAKAFUL QUOTATION SLIP
+Etiqa General Takaful Berhad
+Quotation Date : 30/03/2026
+Applicant : ALICE TESTER
+Period of Cover : 16/05/2026 until 15/05/2027
+VEHICLE INFORMATION
+Vehicle Registration Number : TST5678
+Vehicle Make : PERODUA
+Vehicle Model : ATIVA 1.0L TURBO AV
+Chassis Number : TESTCHASSIS02
+Cubic Capacity : 998
+Year of Manufactured : 2023
+COVERAGE INFORMATION
+Sum Covered : RM 57000.00 (Market Value)
+Cover Type : Comprehensive
+CONTRIBUTION SUMMARY
+NCD (55.00%)
+RM 891.50
+Gross Contribution
+RM 1067.06
+Total Contribution Payable
+RM 1242.62
